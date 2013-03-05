@@ -40,7 +40,7 @@ static ngx_msec_t ngx_timer_wheel_expire_time(void);
 static void ngx_timer_wheel_add(ngx_event_t *ev, ngx_msec_t timer);
 static void ngx_timer_wheel_del(ngx_event_t *ev);
 static ngx_int_t ngx_timer_wheel_empty(void);
-static inline void ngx_timer_wheel_process_queue(
+static ngx_inline void ngx_timer_wheel_process_queue(
     ngx_timer_wheel_node_t  *head, ngx_uint_t pending);
 
 static ngx_command_t  ngx_timer_wheel_commands[] = {
@@ -139,36 +139,11 @@ ngx_timer_wheel_init_conf(ngx_cycle_t *cycle, void *conf)
 
 
 
-ngx_thread_volatile ngx_timer_wheel_t  ngx_timer_wheel;
-
-/*
-#if (NGX_HAVE_TIMERFD)
-static int ngx_timer_wheel_fd;
-
-static void
-ngx_timer_wheel_timerfd_handler(ngx_event_t *ev)
-{
-    ngx_int_t          n;
-    ngx_connection_t  *c;
-    uint64_t           step;
-
-    c = ev->data;
-
-    ngx_log_debug0(NGX_LOG_DEBUG_CORE, ev->log, 0, "timer wheel timerfd handler");
-
-    n = ngx_read_fd(c->fd, &step, sizeof(step));
-
-    if (n == NGX_AGAIN) {
-        return;
-    }
-
-    (void) ngx_timer_wheel_advance((ngx_uint_t) step);
-}
-#endif
-*/
+static ngx_thread_volatile ngx_timer_wheel_t  ngx_timer_wheel;
 
 
-#define ngx_timer_wheel_slot(key) (((key + ngx_timer_wheel.resolution - 1) / ngx_timer_wheel.resolution) % ngx_timer_wheel.wheel_size)
+#define ngx_timer_wheel_slot(key) \
+    (((key + ngx_timer_wheel.resolution - 1) / ngx_timer_wheel.resolution) % ngx_timer_wheel.wheel_size)
 
 #define ngx_timer_wheel_unlink(node) \
                                                                               \
@@ -213,32 +188,6 @@ ngx_timer_wheel_init(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
-
-
-    /*
-    #if (NGX_HAVE_TIMERFD)
-        if (cf->use_timerfd) {
-
-            ngx_timer_wheel_fd = timerfd_create(CLOCK_REALTIME, 0);
-            if (ngx_timer_wheel_fd == -1) {
-                return NGX_ERROR;
-            }
-
-            struct itimerspec itv;
-
-            itv.it_interval.tv_sec = itv.it_value.tv_sec = ngx_timer_wheel.resolution/1000;
-            itv.it_interval.tv_nsec= itv.it_value.tv_nsec= (ngx_timer_wheel.resolution%1000) * 1000;
-
-            if (timerfd_settime(ngx_timer_wheel_fd, 0, &itv, NULL) == -1) {
-                return NGX_ERROR;
-            }
-            if (ngx_add_channel_event(cycle, ngx_timer_wheel_fd, NGX_READ_EVENT, ngx_timer_wheel_timerfd_handler)
-                != NGX_OK) {
-                return NGX_ERROR;
-            }
-        }
-    #endif
-    */
     return NGX_OK;
 }
 
@@ -249,19 +198,20 @@ ngx_timer_wheel_done(ngx_cycle_t *cycle)
 }
 
 static void
-ngx_timer_wheel_process_expired(void) {
+ngx_timer_wheel_process_expired(void)
+{
+    ngx_uint_t slot;
 
-    ngx_uint_t step;
-    /* prev slot of current time */
-    step = (ngx_current_msec/ngx_timer_wheel.resolution) % ngx_timer_wheel.wheel_size;
+    slot = ngx_timer_wheel_slot(ngx_current_msec + ngx_timer_wheel.resolution);
 
     ngx_mutex_lock(ngx_event_timer_mutex);
 
     ngx_timer_wheel_process_queue(ngx_timer_wheel.pending, 1);
 
-    while (ngx_timer_wheel.slot <= step) {
+    while (ngx_timer_wheel.slot != slot) {
         ngx_timer_wheel_process_queue(ngx_timer_wheel.wheel[ngx_timer_wheel.slot], 0);
         ngx_timer_wheel.slot ++;
+        ngx_timer_wheel.slot %= ngx_timer_wheel.wheel_size;
     }
 
     ngx_timer_wheel_process_queue(ngx_timer_wheel.pending, 1);
@@ -271,7 +221,7 @@ ngx_timer_wheel_process_expired(void) {
 
 
 
-static inline void
+static ngx_inline void
 ngx_timer_wheel_process_queue(ngx_timer_wheel_node_t  *head, ngx_uint_t pending)
 {
     ngx_timer_wheel_node_t *node;
@@ -284,7 +234,7 @@ ngx_timer_wheel_process_queue(ngx_timer_wheel_node_t  *head, ngx_uint_t pending)
 
         ev = (ngx_event_t *) ((char *) node - offsetof(ngx_event_t, timer));
 
-        if (ngx_timer_before(ngx_current_msec, node->key)) {
+        if (ngx_timer_before(ngx_current_msec + ngx_timer_wheel.resolution, node->key) ) {
             continue;
         }
 
@@ -310,6 +260,7 @@ ngx_timer_wheel_process_queue(ngx_timer_wheel_node_t  *head, ngx_uint_t pending)
                        ngx_event_ident(ev->data), ev->timer.key);
 
         ngx_timer_wheel_unlink(node);
+        ngx_timer_wheel.size --;
         ev->timer_set = 0;
 
 #if (NGX_THREADS)

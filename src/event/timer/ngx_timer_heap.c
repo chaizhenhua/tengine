@@ -46,7 +46,8 @@ ngx_module_t  ngx_timer_heap_module = {
     NGX_MODULE_V1_PADDING
 };
 
-ngx_thread_volatile ngx_heap_t  ngx_timer_heap;
+/*  */
+static ngx_thread_volatile ngx_heap_t  ngx_timer_heap;
 
 static ngx_int_t
 ngx_timer_heap_init(ngx_cycle_t *cycle)
@@ -103,7 +104,6 @@ ngx_timer_heap_process_expired(void)
             break;
         }
 
-        /* node->key <= ngx_current_time */
         if ((ngx_msec_int_t) (node->key - ngx_current_msec) <= 0) {
             ev = (ngx_event_t *) ((char *) node - offsetof(ngx_event_t, timer));
 

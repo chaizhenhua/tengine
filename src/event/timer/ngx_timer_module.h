@@ -3,7 +3,7 @@
 #define _NGX_TIMER_MODULE_INCLUDE_
 
 #include <ngx_event.h>
-#define ngx_timer_before(x, y)  ((ngx_msec_int_t) (x - y) < 0)
+#define ngx_timer_before(x, y)  ((ngx_msec_int_t) (x - y) <= 0)
 
 typedef struct {
     void  (*add)(ngx_event_t *ev, ngx_msec_t timer);

@@ -100,13 +100,17 @@ ngx_timer_use(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
     for (m = 0; ngx_modules[m]; m++) {
+
         if (ngx_modules[m]->type != NGX_TIMER_MODULE) {
             continue;
         }
 
         module = ngx_modules[m]->ctx;
+
         if (module->name->len == value[1].len) {
+
             if (ngx_strcmp(module->name->data, value[1].data) == 0) {
+
                 /* different from event_use */
                 tcf->use = ngx_modules[m]->index;
 
@@ -143,11 +147,11 @@ ngx_timer_create_conf(ngx_cycle_t *cycle)
     ngx_timer_conf_t     *tcf;
     ngx_uint_t            m;
     ngx_timer_module_t   *module;
-    ngx_command_t        *cmd, *commands;
+    ngx_command_t        *cmd, *command;
     void                 *rv;
-    ngx_uint_t            ngx_timer_max_command;
+    ngx_uint_t            ncmds;
 
-    ngx_timer_max_command = 0;
+    ncmds = 0;
     /* copy submodule commands */
     for (m = 0; ngx_modules[m]; m++) {
 
@@ -159,25 +163,25 @@ ngx_timer_create_conf(ngx_cycle_t *cycle)
             continue;
         }
         for ( cmd = ngx_modules[m]->commands; cmd->name.len; cmd++) {
-            ngx_timer_max_command ++;
+            ncmds ++;
         }
     }
 
-    if (ngx_timer_max_command != 0) {
+    if (ncmds != 0) {
 
-        commands = ngx_palloc(cycle->pool,
-                              ngx_timer_max_command * sizeof(ngx_command_t) + sizeof(ngx_timer_commands));
+        command = ngx_palloc(cycle->pool,
+                             ncmds * sizeof(ngx_command_t) + sizeof(ngx_timer_commands));
 
-        if (commands == NULL) {
+        if (command == NULL) {
             return NULL;
         }
 
 
-        ngx_timer_module.commands = commands;
+        ngx_timer_module.commands = command;
 
-        ngx_memcpy(commands, ngx_timer_commands, sizeof(ngx_timer_commands) );
+        ngx_memcpy(command, ngx_timer_commands, sizeof(ngx_timer_commands) );
 
-        commands += (sizeof(ngx_timer_commands)/ sizeof(ngx_command_t) - 1);
+        command += (sizeof(ngx_timer_commands)/ sizeof(ngx_command_t) - 1);
 
         for (m = 0; ngx_modules[m]; m++) {
 
@@ -191,17 +195,18 @@ ngx_timer_create_conf(ngx_cycle_t *cycle)
 
             for (cmd = ngx_modules[m]->commands; cmd->name.len; cmd++) {
 
-                commands->name = cmd->name;
-                commands->type = cmd->type;
-                commands->set = ngx_timer_sub_module_command;
-                commands->conf = cmd->conf;
-                commands->offset = 0;
-                commands->post = ngx_modules[m];
-                commands ++;
+                command->name = cmd->name;
+                command->type = cmd->type;
+                command->set = ngx_timer_sub_module_command;
+                command->conf = cmd->conf;
+                command->offset = 0;
+                command->post = ngx_modules[m];
+                command ++;
             }
         }
-        commands->name.len = 0;
-        commands->name.data = NULL;
+
+        /* ngx_null_command */
+        ngx_memzero(command, sizeof(ngx_command_t));
     }
 
 
@@ -263,10 +268,10 @@ ngx_timer_init_conf(ngx_cycle_t *cycle, void *conf)
                 continue;
             }
 
-            return NGX_CONF_ERROR;
+            return rv;
         }
     }
-    
+
     ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                   "using the \"%s\" timer module", tcf->name);
 
